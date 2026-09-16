@@ -289,3 +289,95 @@ describe("the refusal vocabulary + the shell laws", () => {
     expect(BRAIN_DEFAULTS.maxAttempts).toBe(3);
   });
 });
+
+describe("audit-fix coverage (P2/P3/P4/P5/P7)", () => {
+  test("P2: done arriving past the deadline still completes (JAM order)", async () => {
+    store.insertUnit("u12", "late-done");
+    const r = await runBrainLoop(
+      store,
+      {
+        unitId: "u12",
+        probe: async () => ({ doneMarker: true, progress: false }),
+        act: async () => ({ ok: true }),
+      },
+      brainPolicies({ deadlineMs: 1 }),
+    );
+    expect(r.state).toBe("complete");
+  });
+
+  test("P3: paused skips stall/deadline accumulation, honours done after resume", async () => {
+    store.insertUnit("u13", "paused");
+    let polls = 0;
+    const r = await runBrainLoop(
+      store,
+      {
+        unitId: "u13",
+        probe: async () => {
+          polls += 1;
+          if (polls >= 5) return { doneMarker: true, progress: false };
+          return { doneMarker: false, progress: false, paused: true };
+        },
+        act: async () => ({ ok: true, errText: "should not nudge a paused unit" }),
+      },
+      brainPolicies({ stallMs: 10, deadlineMs: 15, nudgeMax: 1 }),
+    );
+    expect(r.state).toBe("complete");
+    expect(store.getUnit("u13")?.nudges).toBe(0);
+  });
+
+  test("P4: slot rotation persists into the row (slot_idx)", async () => {
+    store.insertUnit("u14", "rotate");
+    let polls = 0;
+    const r = await runBrainLoop(
+      store,
+      {
+        unitId: "u14",
+        probe: async () => {
+          polls += 1;
+          if (polls >= 3) return { doneMarker: true, progress: true };
+          throw new Error("HTTP 429 rate limit");
+        },
+        act: async () => ({ ok: true }),
+        rotate: async () => ({ ok: true, slotIdx: 7 }),
+      },
+      brainPolicies(),
+    );
+    expect(r.state).toBe("complete");
+    expect(store.getUnit("u14")?.slot_idx).toBe(7);
+  });
+
+  test("P5: setState redacts key-shaped reasons (secrets law on the write path)", () => {
+    store.insertUnit("u15", "secrets");
+    const leak = "pin failed with sk-or-v1-abcdefghijklmnopqrstuvwxyz012345";
+    store.setState("u15", "failed", leak);
+    const row = store.getUnit("u15");
+    expect(resultIsSecretFree(row?.yield_preview ?? "")).toBe(true);
+    expect(row?.yield_preview).toContain("[REDACTED]");
+  });
+
+  test("P7: dead exports covered (guard, version, reopen, default path)", async () => {
+    const m = await import("../src/index.js");
+    expect(m.isMechaRefusal(new MechaRefusal("unit_not_found", "x"))).toBe(true);
+    expect(m.isMechaRefusal(new Error("x"))).toBe(false);
+    expect(m.MECHA_BRAIN_VERSION).toBe("1.0.0");
+    const dir2 = tmpDir();
+    const db2 = path.join(dir2, "b.sqlite");
+    const s2 = new UnitStore(m.reopenStore({ dbPath: db2 }));
+    s2.insertUnit("rx", "reopen-store");
+    expect(s2.getUnit("rx")?.state).toBe("running");
+    // default path ladder: BRAIN_DB_PATH wins -> BUN_TEST tmp -> home dir
+    const savedBrain = process.env.BRAIN_DB_PATH;
+    const savedBunTest = process.env.BUN_TEST;
+    process.env.BRAIN_DB_PATH = "/custom/brain.sqlite";
+    expect(m.defaultDbPath("/h")).toBe("/custom/brain.sqlite");
+    delete process.env.BRAIN_DB_PATH;
+    process.env.BUN_TEST = "1";
+    expect(m.defaultDbPath("/h")).toBe("/tmp/brain-test.sqlite");
+    delete process.env.BUN_TEST;
+    expect(m.defaultDbPath("/h")).toBe("/h/.mecha-brain/brain.sqlite");
+    if (savedBrain !== undefined) process.env.BRAIN_DB_PATH = savedBrain;
+    else delete process.env.BRAIN_DB_PATH;
+    if (savedBunTest !== undefined) process.env.BUN_TEST = savedBunTest;
+    fs.rmSync(dir2, { recursive: true, force: true });
+  });
+});

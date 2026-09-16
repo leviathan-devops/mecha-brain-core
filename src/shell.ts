@@ -68,7 +68,14 @@ export function requireFields(
   return { ok: true };
 }
 
+const SECRET_RE = /sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----/g;
+
+/** Redact key-shaped material (the secrets law, write path). */
+export function redactSecrets(text: string): string {
+  return text.replace(SECRET_RE, "[REDACTED]");
+}
+
 /** Secrets law, grep-tested: a result must not carry key-shaped material. */
 export function resultIsSecretFree(text: string): boolean {
-  return !/sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(text);
+  return !SECRET_RE.test(text);
 }

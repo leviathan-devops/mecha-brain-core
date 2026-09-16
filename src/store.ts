@@ -7,6 +7,7 @@
 //   error degrades the caller alive, it never crashes the brain.
 //   BUN_TEST TMP — under tests the store resolves to a tmpdir path.
 import { Database } from "bun:sqlite";
+import { redactSecrets } from "./shell.js";
 
 export type UnitState =
   | "pending"
@@ -118,10 +119,13 @@ export class UnitStore {
   }
 
   setState(unitId: string, state: UnitState, reason = ""): void {
+    // SECRETS LAW on the write path: reasons can embed worker output —
+    // key-shaped material is redacted before it touches the row.
+    const safeReason = redactSecrets(reason);
     const completed = state === "complete" || state === "failed" || state === "killed" ? Date.now() : null;
     this.db.run(
       "UPDATE units SET state = ?, yield_preview = ?, completed_at = COALESCE(?, completed_at) WHERE unit_id = ?",
-      [state, reason.slice(0, 2000), completed, unitId],
+      [state, safeReason.slice(0, 2000), completed, unitId],
     );
   }
 

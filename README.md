@@ -41,7 +41,7 @@ attempt evidence) — never by a receipt's self-report.
 |---|---|---|
 | row is truth | UnitStore.setState writes reason + completed_at | the worker prose lies; the row cannot |
 | stall/nudge ladder | runBrainLoop no-progress branch + setNudges | nudges recover; the budget bounds them |
-| deadline first | runBrainLoop pre-branch check | a progress-spinning worker must still hit it |
+| deadline first + done first | runBrainLoop order: done -> paused -> deadline -> progress | extraction-shape necessity: the draft's progress `continue` would skip a late deadline check; JAM's flow always reaches its unconditional deadline (progress is only a timestamp reset), so the hoist fixes the EXTRACTION, not JAM — and done-before-deadline preserves JAM's done.mk precedence (audited: MechaAudit P1/P2) |
 | rotate polarity | classifyError + demotesSlot | contract errors are not slot failures |
 | loud exhaustion | brainReason("exhausted") + remedy | silent exhaustion looks alive |
 | delivery by effect | verifyDeliveryByEffect before/after | receipts self-report; effects do not |
@@ -84,6 +84,12 @@ Findings found by the battery during extraction, all fixed:
    not crash -> errText fallback added.
 4. injectable clock/sleep seams added (sleepFn/nowFn) so the battery is
    deterministic — no wall timers in tests (project rule).
+5. independent zero-trust audit (fresh subagent, zero build context) confirmed
+   battery/constant claims PROVEN via mutation test, refuted the JAM-hole
+   attribution (P1), and found: done-vs-deadline order (P2), unpersisted slot
+   rotations (P4), secrets law unenforced on the write path (P5),
+   shrink-blind effect gate (P6) — all fixed; paused semantics documented as
+   probe-driven (P3); dead exports covered by battery (P7).
 Battery: 17/17 green (51 expects). tsc --noEmit: 0.
 
 ## SHAs

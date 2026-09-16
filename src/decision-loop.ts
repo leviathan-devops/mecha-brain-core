@@ -30,8 +30,13 @@ export const BRAIN_DEFAULTS = {
 export type ProbeResult = {
   doneMarker: boolean;
   progress: boolean;
+  /** The host paused the unit: the loop skips stall/deadline accumulation
+   *  but still honours a done marker (JAM paused semantics). */
+  paused?: boolean;
   output?: string;
 };
+
+export type RotateResult = ActResult & { slotIdx?: number | null };
 
 export type ActResult = { ok: boolean; errText?: string };
 
@@ -39,7 +44,7 @@ export type BrainDeps = {
   unitId: string;
   probe: () => Promise<ProbeResult>;
   act: (text: string) => Promise<ActResult>;
-  rotate?: (cls: ErrorClass, errText: string) => Promise<ActResult>;
+  rotate?: (cls: ErrorClass, errText: string) => Promise<RotateResult>;
   onState?: (state: UnitState, reason: string) => void;
 };
 
@@ -91,11 +96,14 @@ export async function runBrainLoop(
     } catch (err) {
       probeErr = err instanceof Error ? err.message : String(err);
     }
+    // ERROR BRANCH: quota/rejected rotate (slot persisted); contract/other
+    // retry the same slot; stall still applies to silent failures.
     if (probeErr !== null || probe === null) {
       const errText = probeErr ?? "probe returned no result";
       const cls = classifyError(errText);
       if (demotesSlot(cls) && deps.rotate) {
         const next = await deps.rotate(cls, errText);
+        if (typeof next.slotIdx === "number") store.setSlotIdx(deps.unitId, next.slotIdx);
         if (!next.ok) {
           return finish("failed", brainReason("exhausted", `${cls}: ${errText.slice(0, 160)}`));
         }
@@ -107,15 +115,20 @@ export async function runBrainLoop(
       }
       continue;
     }
-    // DEADLINE FIRST (extraction delta, law-faithful to JAM's
-    // "deadline exceeded without done.mk" intent): the deadline bounds TOTAL
-    // wall time regardless of progress — a perpetually-progressing worker
-    // must still hit it (checked before the progress reset).
-    if (nowFn() > deadline) {
-      return finish("failed", brainReason("deadline", `${Math.round(deadlineMs / 60_000)}min budget`));
-    }
+    // DONE BEFORE DEADLINE (JAM order): a done-marker arriving in the same
+    // tick the deadline expires still completes — done.mk is honoured first.
     if (probe.doneMarker) {
       return finish("complete", probe.output ?? "done-marker observed");
+    }
+    // PAUSED: skip stall/deadline accumulation (the pane + pin stay live).
+    if (probe.paused) {
+      lastProgress = nowFn();
+      continue;
+    }
+    // DEADLINE bounds total wall time regardless of progress (extraction
+    // shape: checked after done/paused, before the progress reset).
+    if (nowFn() > deadline) {
+      return finish("failed", brainReason("deadline", `${Math.round(deadlineMs / 60_000)}min budget`));
     }
     if (probe.progress) {
       nudges = 0;
@@ -133,6 +146,7 @@ export async function runBrainLoop(
           const cls = classifyError(act.errText ?? "");
           if (demotesSlot(cls) && deps.rotate) {
             const next = await deps.rotate(cls, act.errText ?? "");
+            if (typeof next.slotIdx === "number") store.setSlotIdx(deps.unitId, next.slotIdx);
             if (!next.ok) {
               return finish("failed", brainReason("exhausted", `${cls} on nudge ${nudges}`));
             }
