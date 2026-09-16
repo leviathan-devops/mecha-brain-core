@@ -1,0 +1,14 @@
+{
+  "name": "mecha-brain-core",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Mechanical decision-making engine: tracker-of-record + decision loop + error classifier + proof gate + refusal vocabulary + tool shell. Extracted law-faithfully from the jarvis-agent-manager build.",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test tests/"
+  },
+  "devDependencies": {
+    "bun-types": "^1.4.2",
+    "typescript": "^7.0.2"
+  }
+}
