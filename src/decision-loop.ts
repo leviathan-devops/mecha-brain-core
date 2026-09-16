@@ -178,12 +178,16 @@ export async function verifyDeliveryByEffect(
     maxAttempts?: number;
     minDelta?: number;
     settleMs?: number;
+    /** Effect comparator — default growth (after > before). Provide one for
+     *  rotating/shrinking outputs (e.g. a content hash: after !== before). */
+    comparator?: (before: number, after: number) => boolean;
     sleepFn?: (ms: number) => Promise<void>;
     nowFn?: () => number;
   },
 ): Promise<DeliveryEvidence> {
   const maxAttempts = opts?.maxAttempts ?? BRAIN_DEFAULTS.maxAttempts;
   const minDelta = opts?.minDelta ?? 1;
+  const comparator = opts?.comparator ?? ((before: number, after: number) => after > before);
   const settleMs = opts?.settleMs ?? 1000;
   const sleepFn = opts?.sleepFn ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const nowFn = opts?.nowFn ?? Date.now;
@@ -195,7 +199,7 @@ export async function verifyDeliveryByEffect(
     let after = before;
     for (;;) {
       after = await probe.effectSize();
-      if (after > before) {
+      if (comparator(before, after) && Math.abs(after - before) >= minDelta) {
         evidence.push({ attempt, before, after, verified: true });
         return { attempts: evidence, verified: true };
       }

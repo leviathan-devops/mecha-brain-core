@@ -381,3 +381,30 @@ describe("audit-fix coverage (P2/P3/P4/P5/P7)", () => {
     fs.rmSync(dir2, { recursive: true, force: true });
   });
 });
+
+describe("P6: effect-gate comparator seam", () => {
+  test("rotating output (shrink then grow) verifies with a change comparator", async () => {
+    let hash = 5;
+    let calls = 0;
+    const r = await verifyDeliveryByEffect(
+      {
+        effectSize: async () => {
+          calls += 1;
+          return hash;
+        },
+        deliver: async () => {
+          hash = hash === 5 ? 3 : 5;
+        },
+      },
+      {
+        comparator: (before, after) => after !== before,
+        settleMs: 10,
+        sleepFn: async () => {},
+        nowFn: () => (now += 10),
+      },
+    );
+    expect(r.verified).toBe(true);
+    expect(r.attempts[0]).toEqual({ attempt: 1, before: 5, after: 3, verified: true });
+    void calls;
+  });
+});
